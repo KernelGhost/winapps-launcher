@@ -138,24 +138,58 @@ function kill_freerdp() {
 
     # Loop through each matching file and add to the array
     for FREERDP_PROCESS_FILE in "${APPDATA_PATH}/FreeRDP_Process_"*.cproc; do
-        # This check ensures the pattern is not treated as a literal string if no files match the pattern.
-        if [ -f "$FREERDP_PROCESS_FILE" ]; then
-            # Extract the file name from the path.
-            FREERDP_PROCESS_FILE=$(basename "$FREERDP_PROCESS_FILE")
+        # Ensure the pattern is not treated as a literal string if no files match.
+        [[ -f "$FREERDP_PROCESS_FILE" ]] || break
 
-            # Remove the 'FreeRDP_Process_' prefix.
-            FREERDP_PROCESS_FILE="${FREERDP_PROCESS_FILE#FreeRDP_Process_}"
+        # Extract the file name from the path.
+        FREERDP_PROCESS_FILE=$(basename "$FREERDP_PROCESS_FILE")
 
-            # Remove the '.cproc' file extension.
-            FREERDP_PROCESS_FILE="${FREERDP_PROCESS_FILE%.cproc}"
+        # Remove the 'FreeRDP_Process_' prefix.
+        FREERDP_PROCESS_FILE="${FREERDP_PROCESS_FILE#FreeRDP_Process_}"
 
-            # Terminate the process (SIGKILL).
-            kill -9 "$FREERDP_PROCESS_FILE" &>/dev/null
+        # Remove the '.cproc' file extension.
+        FREERDP_PROCESS_FILE="${FREERDP_PROCESS_FILE%.cproc}"
 
-            # Remove the file.
-            # NOTE: This is not necessary as 'bin/winapps' will automatically delete the file once the process terminates.
-            #rm "${APPDATA_PATH}/FreeRDP_Process_${FREERDP_PROCESS_FILE}.cproc" &>/dev/null
+        # Track termination action.
+        KILLED=false
 
+        # Terminate processes.
+        if [[ "$FREERDP_PROCESS_FILE" =~ ^[0-9]+$ ]] && \
+           [[ -d "/proc/$FREERDP_PROCESS_FILE" ]] && \
+           [[ -r "/proc/$FREERDP_PROCESS_FILE/comm" ]] && \
+           [[ $(<"/proc/$FREERDP_PROCESS_FILE/comm") == *freerdp* ]]; then
+            # SIGTERM
+            kill -15 "$FREERDP_PROCESS_FILE" &>/dev/null
+
+            # Wait up to 5 seconds.
+            for _ in {1..5}; do
+                sleep 1
+                [[ ! -d "/proc/$FREERDP_PROCESS_FILE" ]] && break
+            done
+
+            # SIGKILL
+            if [[ -d "/proc/$FREERDP_PROCESS_FILE" ]] && \
+               [[ -r "/proc/$FREERDP_PROCESS_FILE/comm" ]] && \
+               [[ $(<"/proc/$FREERDP_PROCESS_FILE/comm") == *freerdp* ]]; then
+                kill -9 "$FREERDP_PROCESS_FILE" &>/dev/null
+            fi
+
+            # Track termination action.
+            KILLED=true
+        elif [[ "$FREERDP_PROCESS_FILE" == "Flatpak" ]] && \
+             command -v flatpak >/dev/null 2>&1 && \
+             flatpak ps --columns=application | grep -q "^com.freerdp.FreeRDP$"; then
+            # Terminate the process.
+            flatpak kill com.freerdp.FreeRDP &>/dev/null
+
+            # Track termination action.
+            KILLED=true
+        fi
+
+        # NOTE: Deletion unnecessary as 'bin/winapps' deletes orphaned files on launch.
+        #rm "${APPDATA_PATH}/FreeRDP_Process_${FREERDP_PROCESS_FILE}.cproc" &>/dev/null
+
+        if [[ "$KILLED" == true ]]; then
             # Print debug feedback.
             echo -e "${DEBUG_TEXT}> KILLED FREERDP PROCESS '${FREERDP_PROCESS_FILE}'${RESET_TEXT}"
 
