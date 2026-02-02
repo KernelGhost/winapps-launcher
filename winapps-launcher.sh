@@ -133,76 +133,29 @@ export -f check_freerdp_running
 # Kill FreeRDP
 function kill_freerdp() {
     # Declare variables.
-    local TERMINATED_PROCESS_IDS=()
     local TERMINATED_PROCESS_IDS_STRING=""
 
-    # Loop through each matching file and add to the array
-    for FREERDP_PROCESS_FILE in "${APPDATA_PATH}/FreeRDP_Process_"*.cproc; do
-        # Ensure the pattern is not treated as a literal string if no files match.
-        [[ -f "$FREERDP_PROCESS_FILE" ]] || break
-
-        # Extract the file name from the path.
-        FREERDP_PROCESS_FILE=$(basename "$FREERDP_PROCESS_FILE")
-
-        # Remove the 'FreeRDP_Process_' prefix.
-        FREERDP_PROCESS_FILE="${FREERDP_PROCESS_FILE#FreeRDP_Process_}"
-
-        # Remove the '.cproc' file extension.
-        FREERDP_PROCESS_FILE="${FREERDP_PROCESS_FILE%.cproc}"
-
-        # Track termination action.
-        KILLED=false
-
-        # Terminate processes.
-        if [[ "$FREERDP_PROCESS_FILE" =~ ^[0-9]+$ ]] && \
-           [[ -d "/proc/$FREERDP_PROCESS_FILE" ]] && \
-           [[ -r "/proc/$FREERDP_PROCESS_FILE/comm" ]] && \
-           [[ $(<"/proc/$FREERDP_PROCESS_FILE/comm") == *freerdp* ]]; then
-            # SIGTERM
-            kill -15 "$FREERDP_PROCESS_FILE" &>/dev/null
-
-            # Wait up to 5 seconds.
-            for _ in {1..5}; do
-                sleep 1
-                [[ ! -d "/proc/$FREERDP_PROCESS_FILE" ]] && break
-            done
-
-            # SIGKILL
-            if [[ -d "/proc/$FREERDP_PROCESS_FILE" ]] && \
-               [[ -r "/proc/$FREERDP_PROCESS_FILE/comm" ]] && \
-               [[ $(<"/proc/$FREERDP_PROCESS_FILE/comm") == *freerdp* ]]; then
-                kill -9 "$FREERDP_PROCESS_FILE" &>/dev/null
-            fi
-
-            # Track termination action.
-            KILLED=true
-        elif [[ "$FREERDP_PROCESS_FILE" == "Flatpak" ]] && \
-             command -v flatpak >/dev/null 2>&1 && \
-             flatpak ps --columns=application | grep -q "^com.freerdp.FreeRDP$"; then
-            # Terminate the process.
-            flatpak kill com.freerdp.FreeRDP &>/dev/null
-
-            # Track termination action.
-            KILLED=true
-        fi
-
-        # NOTE: Deletion unnecessary as 'bin/winapps' deletes orphaned files on launch.
-        #rm "${APPDATA_PATH}/FreeRDP_Process_${FREERDP_PROCESS_FILE}.cproc" &>/dev/null
-
-        if [[ "$KILLED" == true ]]; then
-            # Print debug feedback.
-            echo -e "${DEBUG_TEXT}> KILLED FREERDP PROCESS '${FREERDP_PROCESS_FILE}'${RESET_TEXT}"
-
-            # Add the process ID to the list of terminated processes.
-            TERMINATED_PROCESS_IDS+=("$FREERDP_PROCESS_FILE")
-        fi
-    done
-
-    # Convert the array of process IDs to a comma-delimited string.
-    TERMINATED_PROCESS_IDS_STRING=$(printf "%s, " "${TERMINATED_PROCESS_IDS[@]}" | sed 's/, $//')
+    TERMINATED_PROCESS_IDS_STRING="$(
+        winapps killrdp |
+        awk '
+            /^[0-9]+$/ || $0 == "Flatpak" { items[++n] = $0 }
+            END {
+                if (n == 1) {
+                    print items[1]
+                } else if (n == 2) {
+                    print items[1] " & " items[2]
+                } else if (n > 2) {
+                    for (i = 1; i <= n - 2; i++) {
+                        printf "%s, ", items[i]
+                    }
+                    print items[n - 1] " & " items[n]
+                }
+            }
+        '
+    )"
 
     # Display feedback if any processes were terminated.
-    [ ${#TERMINATED_PROCESS_IDS[@]} -ne 0 ] && show_error_message "<u>KILLED</u> FreeRDP process(es): ${TERMINATED_PROCESS_IDS_STRING}."
+    [[ -n "$TERMINATED_PROCESS_IDS_STRING" ]] && show_error_message "<u>KILLED</u> FreeRDP process(es): ${TERMINATED_PROCESS_IDS_STRING}."
 }
 export -f kill_freerdp
 
