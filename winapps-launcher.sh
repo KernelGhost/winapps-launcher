@@ -133,42 +133,29 @@ export -f check_freerdp_running
 # Kill FreeRDP
 function kill_freerdp() {
     # Declare variables.
-    local TERMINATED_PROCESS_IDS=()
     local TERMINATED_PROCESS_IDS_STRING=""
 
-    # Loop through each matching file and add to the array
-    for FREERDP_PROCESS_FILE in "${APPDATA_PATH}/FreeRDP_Process_"*.cproc; do
-        # This check ensures the pattern is not treated as a literal string if no files match the pattern.
-        if [ -f "$FREERDP_PROCESS_FILE" ]; then
-            # Extract the file name from the path.
-            FREERDP_PROCESS_FILE=$(basename "$FREERDP_PROCESS_FILE")
-
-            # Remove the 'FreeRDP_Process_' prefix.
-            FREERDP_PROCESS_FILE="${FREERDP_PROCESS_FILE#FreeRDP_Process_}"
-
-            # Remove the '.cproc' file extension.
-            FREERDP_PROCESS_FILE="${FREERDP_PROCESS_FILE%.cproc}"
-
-            # Terminate the process (SIGKILL).
-            kill -9 "$FREERDP_PROCESS_FILE" &>/dev/null
-
-            # Remove the file.
-            # NOTE: This is not necessary as 'bin/winapps' will automatically delete the file once the process terminates.
-            #rm "${APPDATA_PATH}/FreeRDP_Process_${FREERDP_PROCESS_FILE}.cproc" &>/dev/null
-
-            # Print debug feedback.
-            echo -e "${DEBUG_TEXT}> KILLED FREERDP PROCESS '${FREERDP_PROCESS_FILE}'${RESET_TEXT}"
-
-            # Add the process ID to the list of terminated processes.
-            TERMINATED_PROCESS_IDS+=("$FREERDP_PROCESS_FILE")
-        fi
-    done
-
-    # Convert the array of process IDs to a comma-delimited string.
-    TERMINATED_PROCESS_IDS_STRING=$(printf "%s, " "${TERMINATED_PROCESS_IDS[@]}" | sed 's/, $//')
+    TERMINATED_PROCESS_IDS_STRING="$(
+        winapps killrdp |
+        awk '
+            /^[0-9]+$/ || $0 == "Flatpak" { items[++n] = $0 }
+            END {
+                if (n == 1) {
+                    print items[1]
+                } else if (n == 2) {
+                    print items[1] " & " items[2]
+                } else if (n > 2) {
+                    for (i = 1; i <= n - 2; i++) {
+                        printf "%s, ", items[i]
+                    }
+                    print items[n - 1] " & " items[n]
+                }
+            }
+        '
+    )"
 
     # Display feedback if any processes were terminated.
-    [ ${#TERMINATED_PROCESS_IDS[@]} -ne 0 ] && show_error_message "<u>KILLED</u> FreeRDP process(es): ${TERMINATED_PROCESS_IDS_STRING}."
+    [[ -n "$TERMINATED_PROCESS_IDS_STRING" ]] && show_error_message "<u>KILLED</u> FreeRDP process(es): ${TERMINATED_PROCESS_IDS_STRING}."
 }
 export -f kill_freerdp
 
